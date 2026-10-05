@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRa Emergency Rescue Beacon</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f3f6fa;color:#172033}
+header{background:#101828;color:#fff;padding:22px 5vw}.head{max-width:1150px;margin:auto;display:flex;justify-content:space-between;align-items:center;gap:20px}.title{font-size:28px;font-weight:700}.sub{color:#c5d0df;margin-top:5px;font-size:14px}.conn{display:flex;align-items:center;gap:9px;background:#1d2939;padding:10px 14px;border-radius:10px;font-size:14px}.dot{width:10px;height:10px;border-radius:50%;background:#98a2b3}.dot.on{background:#35c759}.dot.alert{background:#ef4444}
+main{max-width:1150px;margin:28px auto;padding:0 18px}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}button{border:0;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}.primary{background:#2563eb;color:#fff}.secondary{background:#e7edf5;color:#26344d}button:disabled{opacity:.5;cursor:not-allowed}
+.banner{display:none;background:#fee2e2;border:1px solid #fca5a5;border-radius:12px;padding:16px 18px;color:#991b1b;font-weight:800;margin-bottom:20px}.banner.show{display:block}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}.card{background:#fff;border:1px solid #e5eaf1;border-radius:14px;padding:19px;box-shadow:0 3px 15px rgba(20,35,60,.06)}.wide{grid-column:span 2}.full{grid-column:span 4}.label{font-size:11px;color:#697789;text-transform:uppercase;letter-spacing:.09em;font-weight:800;margin-bottom:8px}.value{font-size:24px;font-weight:700;word-break:break-word}.small{font-size:15px;line-height:1.55}.status{display:inline-block;padding:7px 10px;border-radius:8px;background:#dcfce7;color:#166534;font-size:13px;font-weight:800}.status.emergency{background:#fee2e2;color:#991b1b}.coords{display:grid;grid-template-columns:1fr 1fr;gap:12px}.coord{padding:13px;background:#f7f9fc;border:1px solid #e8edf4;border-radius:10px}.map{width:100%;margin-top:14px}.log{height:230px;overflow:auto;border-radius:10px;background:#0f172a;color:#dbeafe;padding:14px;font:13px/1.55 Consolas,monospace}.entry{padding:6px 0;border-bottom:1px solid rgba(255,255,255,.08)}footer{text-align:center;color:#758195;font-size:12px;padding:24px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.wide,.full{grid-column:span 2}.head{flex-direction:column;align-items:flex-start}}@media(max-width:600px){.grid{grid-template-columns:1fr}.wide,.full{grid-column:span 1}.coords{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><div class="head"><div><div class="title">LoRa Emergency Rescue Beacon</div><div class="sub">Real-time emergency location monitoring</div></div><div class="conn"><span id="dot" class="dot"></span><span id="connText">Beacon disconnected</span></div></div></header>
+<main>
+<div class="toolbar">
+<button id="connectBtn" class="primary">Connect Rescue Beacon</button>
+<button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+<button id="refreshBtn" class="secondary" disabled>Refresh Data</button>
+</div>
+<div id="banner" class="banner">🚨 EMERGENCY SOS RECEIVED <span id="bannerText"></span></div>
+<div class="grid">
+<div class="card"><div class="label">Beacon Status</div><div id="status" class="status">SYSTEM READY</div></div>
+<div class="card"><div class="label">Victim ID</div><div id="victim" class="value">--</div></div>
+<div class="card"><div class="label">Alert Count</div><div id="count" class="value">0</div></div>
+<div class="card"><div class="label">Last Update</div><div id="updated" class="value small">--</div></div>
+<div class="card wide"><div class="label">Emergency Coordinates</div><div class="coords"><div class="coord"><div class="label">Latitude</div><div id="lat" class="value small">--</div></div><div class="coord"><div class="label">Longitude</div><div id="lon" class="value small">--</div></div></div><button id="mapBtn" class="primary map" disabled>View Location on Google Maps</button></div>
+<div class="card wide"><div class="label">Location Name</div><div id="location" class="value small">Awaiting beacon data...</div><div style="height:14px"></div><div class="label">Address</div><div id="address" class="value small">--</div></div>
+<div class="card full"><div class="label">Rescue Communication Log</div><div id="log" class="log"><div class="entry">System ready. Connect the rescue beacon to begin receiving telemetry.</div></div></div>
+</div></main><footer>Emergency Rescue Beacon Monitoring System</footer>
+<script>
+const DEVICE_NAME='RescueBeacon';
+const SERVICE_UUID='7b7d0001-5a12-4f7c-9c22-123456789001';
+const CHAR_UUID='7b7d0002-5a12-4f7c-9c22-123456789001';
+let device=null,characteristic=null,timer=null,latest=null,lastLog='';
+const $=id=>document.getElementById(id);
+function log(msg){const e=document.createElement('div');e.className='entry';e.textContent='['+new Date().toLocaleTimeString()+'] '+msg;$('log').prepend(e);while($('log').children.length>12)$('log').lastChild.remove()}
+function setConnected(v){$('dot').classList.toggle('on',v);$('dot').classList.remove('alert');$('connText').textContent=v?'Beacon connected':'Beacon disconnected';$('connectBtn').disabled=v;$('disconnectBtn').disabled=!v;$('refreshBtn').disabled=!v}
+function onDisconnect(){clearInterval(timer);timer=null;characteristic=null;setConnected(false);log('Rescue beacon connection lost.')}
+function process(data){try{const txt=new TextDecoder().decode(data).trim();const p=JSON.parse(txt);update(p)}catch(e){console.warn('Packet parse skipped',e)}}
+function update(p){latest=p;$('victim').textContent=p.victim??'--';$('lat').textContent=p.latitude??'--';$('lon').textContent=p.longitude??'--';$('location').textContent=p.location??'--';$('address').textContent=p.address??'--';$('count').textContent=p.count??0;$('updated').textContent=new Date().toLocaleTimeString();const sos=p.sos===true;$('status').textContent=sos?'SOS RECEIVED':'SYSTEM READY';$('status').classList.toggle('emergency',sos);$('banner').classList.toggle('show',sos);$('bannerText').textContent=sos?'  •  Victim '+(p.victim??'--')+'  •  Alert #'+(p.count??0):'';if(sos){$('dot').classList.add('alert');$('dot').classList.remove('on')}else{$('dot').classList.add('on');$('dot').classList.remove('alert')};const a=parseFloat(p.latitude),b=parseFloat(p.longitude);$('mapBtn').disabled=!Number.isFinite(a)||!Number.isFinite(b);const summary=(sos?'Emergency packet received: ':'Telemetry updated: ')+(p.victim??'--')+' @ '+(p.latitude??'--')+', '+(p.longitude??'--');if(summary!==lastLog){log(summary);lastLog=summary}}
+async function readData(){if(!characteristic||!device?.gatt?.connected)return;try{const v=await characteristic.readValue();process(v)}catch(e){console.warn('Read failed',e)}}
+async function connect(){if(!('bluetooth' in navigator)){alert('Web Bluetooth is unavailable in this browser. Use Chrome or Edge on the laptop.');return}try{log('Searching for RescueBeacon...');device=await navigator.bluetooth.requestDevice({filters:[{name:DEVICE_NAME}],optionalServices:[SERVICE_UUID]});device.addEventListener('gattserverdisconnected',onDisconnect);log('Beacon selected: '+(device.name||DEVICE_NAME));const server=await device.gatt.connect();const service=await server.getPrimaryService(SERVICE_UUID);characteristic=await service.getCharacteristic(CHAR_UUID);setConnected(true);try{await characteristic.startNotifications();characteristic.addEventListener('characteristicvaluechanged',e=>process(e.target.value));log('Emergency notification channel active.')}catch(e){log('Notification channel unavailable; periodic reads active.')}await readData();clearInterval(timer);timer=setInterval(readData,1000);log('Rescue telemetry monitoring started.')}catch(e){console.error(e);setConnected(false);if(e.name!=='NotFoundError')log('Connection failed: '+e.message)}}
+async function disconnect(){clearInterval(timer);timer=null;try{if(device?.gatt?.connected)device.gatt.disconnect()}catch(e){}characteristic=null;setConnected(false);log('Rescue beacon disconnected.')}
+function openMap(){if(!latest)return;const lat=parseFloat(latest.latitude),lon=parseFloat(latest.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(lat+','+lon),'_blank','noopener,noreferrer')}
+$('connectBtn').addEventListener('click',connect);$('disconnectBtn').addEventListener('click',disconnect);$('refreshBtn').addEventListener('click',readData);$('mapBtn').addEventListener('click',openMap);
+</script>
+</body>
+</html>
